@@ -3,7 +3,7 @@ module.exports = {
         name: "peblar",
         script: "npm",
         args: "run start -- -H 0.0.0.0",
-        interpreter: "none",
+        shell: true,
         env: {
             NODE_ENV: "production",
         }
