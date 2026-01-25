@@ -33,7 +33,7 @@ export async function GET() {
     return NextResponse.json({
       power: (meterData.PowerTotal || 0) / 1000,
       energy: (meterData.EnergySession || 0) / 1000,
-      status: statusData.CpState === 'State C' ? 1 : 0,
+      status: (statusData.CpState === 'State C' || statusData.CpState === 'State D') ? 1 : 0,
       vehicleInfo: statusData.CpState || "Unknown",
       sessionStart: recorderStatus.currentState.sessionStart
     });

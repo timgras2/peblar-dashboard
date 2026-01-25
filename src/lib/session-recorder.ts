@@ -50,24 +50,38 @@ class SessionRecorder {
     private async initializeState() {
         try {
             const baseUrl = `${config.api.baseUrl}:${config.api.port}`;
-            const statusRes = await fetch(`${baseUrl}${config.api.endpoints.status}`, {
-                headers: { 'Authorization': config.api.token },
-                cache: 'no-store'
-            });
-            const meterRes = await fetch(`${baseUrl}${config.api.endpoints.meter}`, {
-                headers: { 'Authorization': config.api.token },
-                cache: 'no-store'
-            });
+            const [statusRes, meterRes] = await Promise.all([
+                fetch(`${baseUrl}${config.api.endpoints.status}`, {
+                    headers: { 'Authorization': config.api.token },
+                    cache: 'no-store'
+                }),
+                fetch(`${baseUrl}${config.api.endpoints.meter}`, {
+                    headers: { 'Authorization': config.api.token },
+                    cache: 'no-store'
+                })
+            ]);
 
             if (statusRes.ok && meterRes.ok) {
                 const statusData = await statusRes.json();
                 const meterData = await meterRes.json();
 
-                this.state.isCharging = statusData.CpState === 'State C';
-                this.state.power = (meterData.PowerTotal || 0) / 1000;
-                this.state.energy = (meterData.EnergySession || 0) / 1000;
+                const isCharging = statusData.CpState === 'State C' || statusData.CpState === 'State D';
+                const currentPower = (meterData.PowerTotal || 0) / 1000;
+                const currentEnergy = (meterData.EnergySession || 0) / 1000;
 
-                console.log(`📡 Recorder initial state: ${this.state.isCharging ? 'CHARGING' : 'IDLE'}`);
+                this.state.isCharging = isCharging;
+                this.state.power = currentPower;
+                this.state.energy = currentEnergy;
+
+                if (isCharging) {
+                    // If we initialized during a charge, we don't know the exact start time,
+                    // but we can set up the state so it records when it ends.
+                    // We assume EnergySession is already accounting for the session energy.
+                    this.onSessionStart(0, currentPower);
+                    console.log(`📡 Recorder detected ongoing charge: ${currentEnergy.toFixed(2)} kWh already consumed.`);
+                } else {
+                    console.log(`📡 Recorder initial state: IDLE`);
+                }
             }
         } catch (error) {
             console.error('Failed to initialize recorder state:', error);
@@ -112,7 +126,7 @@ class SessionRecorder {
             const statusData = await statusRes.json();
             const meterData = await meterRes.json();
 
-            const isCurrentlyCharging = statusData.CpState === 'State C';
+            const isCurrentlyCharging = statusData.CpState === 'State C' || statusData.CpState === 'State D';
             const currentPower = (meterData.PowerTotal || 0) / 1000; // Convert to kW
             const currentEnergy = (meterData.EnergySession || 0) / 1000; // Convert to kWh
 
@@ -144,9 +158,9 @@ class SessionRecorder {
     /**
      * Handle session start
      */
-    private onSessionStart(energy: number, power: number) {
-        console.log('⚡ Charging session started');
-        this.state.sessionStart = new Date();
+    private onSessionStart(energy: number, power: number, startTime?: Date) {
+        console.log('⚡ Charging session started (or detected)');
+        this.state.sessionStart = startTime || new Date();
         this.state.sessionStartEnergy = energy;
         this.state.maxPower = power;
     }
@@ -156,8 +170,17 @@ class SessionRecorder {
      */
     private onSessionEnd(finalEnergy: number) {
         if (!this.state.sessionStart) {
-            console.warn('Session end detected but no start time recorded');
-            return;
+            // If we missed the start but have energy in EnergySession, 
+            // we can assume the session just finished and record what we can
+            if (finalEnergy > 0.1) {
+                console.warn('Session end detected but no start time recorded. Recording from current session energy.');
+                this.state.sessionStart = new Date(Date.now() - 3600000); // Assume it started an hour ago as proxy
+                this.state.sessionStartEnergy = 0; // Use the full session energy
+            } else {
+                console.warn('Session end detected but no start time or energy recorded');
+                this.resetState();
+                return;
+            }
         }
 
         const sessionEnd = new Date();
