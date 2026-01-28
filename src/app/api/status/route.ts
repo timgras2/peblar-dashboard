@@ -28,14 +28,25 @@ export async function GET() {
     const meterData = await meterRes.json();
 
     const { sessionRecorder } = await import('@/lib/session-recorder');
+    const { energyPriceService } = await import('@/lib/energy-prices');
+    
     const recorderStatus = sessionRecorder.getStatus();
+    
+    // Ensure recorder is running (fallback for when instrumentation hook doesn't fire)
+    if (!recorderStatus.running) {
+        console.log('⚠️ Session recorder not running (lazy start triggered)');
+        sessionRecorder.start();
+    }
+
+    const currentPrice = await energyPriceService.getCurrentPrice();
 
     return NextResponse.json({
       power: (meterData.PowerTotal || 0) / 1000,
       energy: (meterData.EnergySession || 0) / 1000,
       status: (statusData.CpState === 'State C' || statusData.CpState === 'State D') ? 1 : 0,
       vehicleInfo: statusData.CpState || "Unknown",
-      sessionStart: recorderStatus.currentState.sessionStart
+      sessionStart: recorderStatus.currentState.sessionStart,
+      currentPrice: currentPrice
     });
   } catch (error) {
     console.error('Failed to read charging status:', error);

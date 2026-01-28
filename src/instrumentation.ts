@@ -4,7 +4,7 @@ export async function register() {
         console.log('🚀 Initializing Peblar Monitor...');
 
         // Dynamic import to avoid issues with better-sqlite3
-        const { sessionRecorder } = await import('./lib/session-recorder');
+        const { sessionRecorder } = await import('@/lib/session-recorder');
 
         // Start the session recorder
         sessionRecorder.start();

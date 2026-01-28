@@ -1,5 +1,6 @@
 import { config } from '@/config';
 import { sessionDB, Session } from './db';
+import { energyPriceService } from './energy-prices';
 
 interface ChargerState {
     isCharging: boolean;
@@ -7,6 +8,8 @@ interface ChargerState {
     energy: number;
     sessionStart: Date | null;
     sessionStartEnergy: number;
+    lastRecordedEnergy: number;
+    currentSessionCost: number;
     maxPower: number;
 }
 
@@ -17,12 +20,13 @@ class SessionRecorder {
         energy: 0,
         sessionStart: null,
         sessionStartEnergy: 0,
+        lastRecordedEnergy: 0,
+        currentSessionCost: 0,
         maxPower: 0
     };
 
     private intervalId: NodeJS.Timeout | null = null;
     private readonly POLL_INTERVAL = 60000; // 1 minute
-    private readonly ENERGY_COST_PER_KWH = 0.30; // €0.30 per kWh
 
     /**
      * Start the background recorder
@@ -76,8 +80,8 @@ class SessionRecorder {
                 if (isCharging) {
                     // If we initialized during a charge, we don't know the exact start time,
                     // but we can set up the state so it records when it ends.
-                    // We assume EnergySession is already accounting for the session energy.
                     this.onSessionStart(0, currentPower);
+                    this.state.lastRecordedEnergy = currentEnergy;
                     console.log(`📡 Recorder detected ongoing charge: ${currentEnergy.toFixed(2)} kWh already consumed.`);
                 } else {
                     console.log(`📡 Recorder initial state: IDLE`);
@@ -133,11 +137,25 @@ class SessionRecorder {
             // Detect session start
             if (isCurrentlyCharging && !this.state.isCharging) {
                 this.onSessionStart(currentEnergy, currentPower);
+            } else if (isCurrentlyCharging && !this.state.sessionStart) {
+                 // Recovery: Charging but no start time (e.g. after restart or bug)
+                 console.warn('⚠️ Charging detected but no session start recorded. Recovering...');
+                 this.onSessionStart(currentEnergy, currentPower);
             }
 
-            // Update max power during charging
-            if (isCurrentlyCharging && currentPower > this.state.maxPower) {
-                this.state.maxPower = currentPower;
+            // Record incremental cost during charging
+            if (isCurrentlyCharging) {
+                const energyDelta = currentEnergy - this.state.lastRecordedEnergy;
+                if (energyDelta > 0) {
+                    const currentPrice = await energyPriceService.getCurrentPrice();
+                    this.state.currentSessionCost += energyDelta * currentPrice;
+                    this.state.lastRecordedEnergy = currentEnergy;
+                }
+
+                // Update max power during charging
+                if (currentPower > this.state.maxPower) {
+                    this.state.maxPower = currentPower;
+                }
             }
 
             // Detect session end
@@ -162,6 +180,8 @@ class SessionRecorder {
         console.log('⚡ Charging session started (or detected)');
         this.state.sessionStart = startTime || new Date();
         this.state.sessionStartEnergy = energy;
+        this.state.lastRecordedEnergy = energy;
+        this.state.currentSessionCost = 0;
         this.state.maxPower = power;
     }
 
@@ -170,14 +190,11 @@ class SessionRecorder {
      */
     private onSessionEnd(finalEnergy: number) {
         if (!this.state.sessionStart) {
-            // If we missed the start but have energy in EnergySession, 
-            // we can assume the session just finished and record what we can
             if (finalEnergy > 0.1) {
-                console.warn('Session end detected but no start time recorded. Recording from current session energy.');
-                this.state.sessionStart = new Date(Date.now() - 3600000); // Assume it started an hour ago as proxy
-                this.state.sessionStartEnergy = 0; // Use the full session energy
+                console.warn('Session end detected but no start time recorded.');
+                this.state.sessionStart = new Date(Date.now() - 3600000);
+                this.state.sessionStartEnergy = 0;
             } else {
-                console.warn('Session end detected but no start time or energy recorded');
                 this.resetState();
                 return;
             }
@@ -199,7 +216,8 @@ class SessionRecorder {
             energy_kwh: energyConsumed,
             max_power_kw: this.state.maxPower,
             avg_power_kw: this.calculateAvgPower(energyConsumed, this.state.sessionStart, sessionEnd),
-            cost: energyConsumed * this.ENERGY_COST_PER_KWH,
+            cost: this.state.currentSessionCost,
+            avg_price_eur: energyConsumed > 0 ? this.state.currentSessionCost / energyConsumed : 0,
             status: 'completed'
         };
 
@@ -227,6 +245,8 @@ class SessionRecorder {
     private resetState() {
         this.state.sessionStart = null;
         this.state.sessionStartEnergy = 0;
+        this.state.lastRecordedEnergy = 0;
+        this.state.currentSessionCost = 0;
         this.state.maxPower = 0;
     }
 
