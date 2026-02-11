@@ -11,5 +11,15 @@ export const config = {
     },
     token: process.env.PEBLAR_API_TOKEN || ''
   },
+  energy: {
+    // Fixed markup/tax per kWh (e.g., 0.15 for €0.15 energy tax)
+    markup: parseFloat(process.env.ENERGY_PRICE_MARKUP || '0.13'),
+    // VAT percentage (e.g., 0.21 for 21%)
+    vat: parseFloat(process.env.ENERGY_VAT_PERCENTAGE || '0.21')
+  },
+  telegram: {
+    token: process.env.TELEGRAM_BOT_TOKEN || '',
+    chatId: process.env.TELEGRAM_CHAT_ID || '',
+  },
   pollingInterval: 5000, // 5 seconds
 }; 

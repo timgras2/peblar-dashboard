@@ -1,6 +1,7 @@
 import { config } from '@/config';
 import { sessionDB, Session } from './db';
 import { energyPriceService } from './energy-prices';
+import { sendTelegramNotification } from './telegram';
 
 interface ChargerState {
     isCharging: boolean;
@@ -160,7 +161,7 @@ class SessionRecorder {
 
             // Detect session end
             if (!isCurrentlyCharging && this.state.isCharging) {
-                this.onSessionEnd(currentEnergy);
+                this.onSessionEnd(currentEnergy, statusData.CpState);
             }
 
             // Update state
@@ -188,7 +189,7 @@ class SessionRecorder {
     /**
      * Handle session end and save to database
      */
-    private onSessionEnd(finalEnergy: number) {
+    private async onSessionEnd(finalEnergy: number, finalState: string = 'Unknown') {
         if (!this.state.sessionStart) {
             if (finalEnergy > 0.1) {
                 console.warn('Session end detected but no start time recorded.');
@@ -202,6 +203,18 @@ class SessionRecorder {
 
         const sessionEnd = new Date();
         const energyConsumed = finalEnergy - this.state.sessionStartEnergy;
+        
+        // Prepare notification message
+        const stateLabel = this.getStateLabel(finalState);
+        let notificationMsg = '';
+        if (finalState === 'State E' || finalState === 'State F') {
+            notificationMsg = `⚠️ Charging Error!\nStatus: ${stateLabel}\nEnergy delivered: ${energyConsumed.toFixed(2)} kWh`;
+        } else {
+             notificationMsg = `✅ Charging Finished\nStatus: ${stateLabel}\nEnergy: ${energyConsumed.toFixed(2)} kWh\nCost: €${this.state.currentSessionCost.toFixed(2)}`;
+        }
+        
+        // Send notification
+        await sendTelegramNotification(notificationMsg);
 
         // Only save if meaningful energy was consumed (> 0.1 kWh)
         if (energyConsumed < 0.1) {
@@ -248,6 +261,21 @@ class SessionRecorder {
         this.state.lastRecordedEnergy = 0;
         this.state.currentSessionCost = 0;
         this.state.maxPower = 0;
+    }
+
+    /**
+     * Convert CP State to human-readable label
+     */
+    private getStateLabel(state: string): string {
+        switch (state) {
+            case 'State A': return 'No Vehicle Connected';
+            case 'State B': return 'Connected (Idle/Wait)';
+            case 'State C': return 'Charging actively';
+            case 'State D': return 'Charging (Ventilation Req.)';
+            case 'State E': return 'Error / Disconnected';
+            case 'State F': return 'Charger Fault';
+            default: return state;
+        }
     }
 
     /**

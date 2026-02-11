@@ -63,6 +63,8 @@ You can modify the following settings in the `.env.local` file:
 
 - `CHARGING_STATION_IP`: The IP address of your charging station (e.g., http://192.168.1.100)
 - `CHARGING_STATION_PORT`: The port your charging station's REST API is running on (default: 8080)
+- `ENERGY_PRICE_MARKUP`: Fixed tax/markup per kWh (default: 0.13 for NL energy tax)
+- `ENERGY_VAT_PERCENTAGE`: VAT percentage (default: 0.21 for 21%)
 
 ## Troubleshooting
 

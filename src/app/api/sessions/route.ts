@@ -15,6 +15,8 @@ export async function GET(request: Request) {
       endTime: session.end_time,
       energy: session.energy_kwh,
       maxPower: session.max_power_kw,
+      cost: session.cost || 0,
+      avgPrice: session.avg_price_eur || 0,
       status: 1
     }));
 

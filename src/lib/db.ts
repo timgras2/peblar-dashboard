@@ -11,6 +11,7 @@ export interface Session {
   max_power_kw: number;
   avg_power_kw?: number;
   cost?: number;
+  avg_price_eur?: number;
   status?: string;
   created_at?: string;
 }

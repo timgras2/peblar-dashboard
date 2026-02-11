@@ -5,7 +5,7 @@ import {
   LineChart, Line, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, AreaChart, Area,
-  RadialBarChart, RadialBar
+  RadialBarChart, RadialBar, PolarAngleAxis
 } from 'recharts';
 import {
   Battery, Zap, Clock, Euro,
@@ -27,6 +27,8 @@ interface ChargingSession {
   endTime: string;
   energy: number;
   maxPower: number;
+  cost: number;
+  avgPrice: number;
   status: number;
 }
 
@@ -38,20 +40,20 @@ interface DashboardSession {
   duration: number;
   energy: number;
   cost: number;
+  avgPrice: number;
   avgPower: number;
 }
 
-// --- Mock Data --- removed per request
-
 export default function Home() {
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
-  const [powerData, setPowerData] = useState<any[]>([]);
+  const [history60Min, setHistory60Min] = useState<{time: string, power: number}[]>([]);
 
   // Real Data State
   const [currentStatus, setCurrentStatus] = useState<ChargingStatus | null>(null);
   const currentStatusRef = useRef<number>(0);
 
   const [sessionHistory, setSessionHistory] = useState<DashboardSession[]>([]);
+  const [currentPrice, setCurrentPrice] = useState<number>(0.30);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,9 +61,6 @@ export default function Home() {
   useEffect(() => {
     currentStatusRef.current = currentStatus?.power || 0;
   }, [currentStatus?.power]);
-
-  // Constants
-  const ENERGY_COST_PER_KWH = 0.30; // Example rate
 
   useEffect(() => {
     // Set initial time to avoid hydration mismatch
@@ -80,6 +79,28 @@ export default function Home() {
         if (statusRes.ok) {
           const statusData = await statusRes.json();
           setCurrentStatus(statusData);
+          if (statusData.currentPrice !== undefined) {
+             setCurrentPrice(statusData.currentPrice);
+          }
+
+          // Update 60 min history
+          const now = new Date();
+          const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+          
+          setHistory60Min(prev => {
+            const entry = { time: timeStr, power: statusData.power || 0 };
+            // If the last entry has the same minute, we might want to replace it or just append
+            // For a 60-minute graph, 1-minute resolution is good.
+            // fetchData runs every 5s.
+            if (prev.length > 0 && prev[prev.length - 1].time === timeStr) {
+              // Update last entry with latest power to have most recent value for the current minute
+              const updated = [...prev];
+              updated[updated.length - 1] = entry;
+              return updated;
+            }
+            const newData = [...prev, entry];
+            return newData.slice(-60); // Keep last 60 minutes (assuming one entry per minute)
+          });
         }
 
         // Fetch sessions
@@ -100,7 +121,8 @@ export default function Home() {
               rawStartTime: start,
               duration: durationMin > 0 ? durationMin : 0,
               energy: s.energy,
-              cost: s.energy * ENERGY_COST_PER_KWH,
+              cost: s.cost || 0,
+              avgPrice: s.avgPrice || 0,
               avgPower: durationMin > 0 ? (s.energy / (durationMin / 60)) : 0
             } as DashboardSession;
           });
@@ -118,22 +140,8 @@ export default function Home() {
     fetchData(true);
     const dataInterval = setInterval(() => fetchData(false), 5000); // Poll every 5s
 
-    // Simulate real-time power updates for the graph (visual flair)
-    const powerTimer = setInterval(() => {
-      setPowerData(prev => {
-        const entry = {
-          time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }),
-          power: currentStatusRef.current
-        };
-        const newData = [...prev, entry];
-        // Keep last 30 points
-        return newData.slice(-30);
-      });
-    }, 2000);
-
     return () => {
       clearInterval(timer);
-      clearInterval(powerTimer);
       clearInterval(dataInterval);
     };
   }, []); // Empty dependency array for stability
@@ -240,6 +248,9 @@ export default function Home() {
     return null;
   };
 
+  const currentPower = currentStatus?.power || 0;
+  const powerPercentage = Math.min((currentPower / 11) * 100, 100);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-6">
       <div className="max-w-7xl mx-auto">
@@ -294,59 +305,122 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-6 mb-6">
-              <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-4 border border-white border-opacity-20">
-                <p className="text-blue-100 text-sm mb-1">Current Power</p>
-                <p className="text-3xl font-bold">{currentStatus?.power || 0} kW</p>
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-8">
+              <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-3 border border-white border-opacity-20">
+                <p className="text-blue-100 text-xs mb-1">Current Power</p>
+                <p className="text-2xl font-bold">{currentStatus?.power || 0} kW</p>
               </div>
-              <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-4 border border-white border-opacity-20">
-                <p className="text-blue-100 text-sm mb-1">Energy Delivered</p>
-                <p className="text-3xl font-bold">{currentStatus?.energy || 0} kWh</p>
+              <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-3 border border-white border-opacity-20">
+                <p className="text-blue-100 text-xs mb-1">Energy Delivered</p>
+                <p className="text-2xl font-bold">{currentStatus?.energy || 0} kWh</p>
               </div>
-              <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-4 border border-white border-opacity-20">
-                <p className="text-blue-100 text-sm mb-1">Duration</p>
-                <p className="text-3xl font-bold">
+              <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-3 border border-white border-opacity-20">
+                <p className="text-blue-100 text-xs mb-1">Duration</p>
+                <p className="text-2xl font-bold">
                   {currentStatus?.sessionStart && currentTime
                     ? Math.floor((currentTime.getTime() - new Date(currentStatus.sessionStart).getTime()) / 60000)
                     : '--'} min
                 </p>
               </div>
-              <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-4 border border-white border-opacity-20 flex flex-col justify-center">
-                <p className="text-blue-100 text-sm mb-1">Vehicle Info</p>
-                <p className="text-xl font-bold leading-tight">{getVehicleStatus(currentStatus?.vehicleInfo)}</p>
+              <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-3 border border-white border-opacity-20 flex flex-col justify-center">
+                <p className="text-blue-100 text-xs mb-1">Vehicle Info</p>
+                <p className="text-lg font-bold leading-tight">{getVehicleStatus(currentStatus?.vehicleInfo)}</p>
               </div>
-              <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-4 border border-white border-opacity-20">
-                <p className="text-blue-100 text-sm mb-1">Est. Cost</p>
-                <p className="text-3xl font-bold">€{((currentStatus?.energy || 0) * ENERGY_COST_PER_KWH).toFixed(2)}</p>
+              <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-3 border border-white border-opacity-20">
+                <p className="text-blue-100 text-xs mb-1">Current Price</p>
+                <p className="text-2xl font-bold">€{currentPrice.toFixed(3)}</p>
+              </div>
+              <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-3 border border-white border-opacity-20">
+                <p className="text-blue-100 text-xs mb-1">Est. Cost</p>
+                <p className="text-2xl font-bold">€{((currentStatus?.energy || 0) * currentPrice).toFixed(2)}</p>
               </div>
             </div>
 
-            {/* Real-time Power Graph */}
-            <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-4 border border-white border-opacity-20">
-              <p className="text-sm font-medium mb-3">Power Draw (Simulated Real-time)</p>
-              <ResponsiveContainer width="100%" height={120}>
-                <AreaChart data={powerData}>
-                  <defs>
-                    <linearGradient id="powerGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#fff" stopOpacity={0.8} />
-                      <stop offset="95%" stopColor="#fff" stopOpacity={0.1} />
-                    </linearGradient>
-                  </defs>
-                  <XAxis dataKey="time" hide />
-                  <Area
-                    type="monotone"
-                    dataKey="power"
-                    name="Power"
-                    unit=" kW"
-                    stroke="#fff"
-                    strokeWidth={2}
-                    fill="url(#powerGradient)"
-                    animationDuration={300}
-                    isAnimationActive={false}
-                  />
-                  <Tooltip content={<CustomTooltip />} />
-                </AreaChart>
-              </ResponsiveContainer>
+            {/* Graphs Section */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Power Gauge (0-11kW) */}
+              <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-6 border border-white border-opacity-20 flex flex-col items-center justify-center">
+                <p className="text-sm font-medium mb-4 self-start">Current Power Draw</p>
+                <div className="relative w-48 h-48">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RadialBarChart 
+                      innerRadius="70%" 
+                      outerRadius="100%" 
+                      barSize={15} 
+                      data={[{ value: currentPower }]} 
+                      startAngle={210} 
+                      endAngle={-30}
+                    >
+                      <PolarAngleAxis
+                        type="number"
+                        domain={[0, 11]}
+                        angleAxisId={0}
+                        tick={false}
+                      />
+                      <RadialBar
+                        background={{ fill: 'rgba(255,255,255,0.1)' }}
+                        dataKey="value"
+                        cornerRadius={10}
+                        fill="#fff"
+                        isAnimationActive={true}
+                        animationDuration={500}
+                      />
+                    </RadialBarChart>
+                  </ResponsiveContainer>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pt-2">
+                    <span className="text-4xl font-bold">{currentPower.toFixed(1)}</span>
+                    <span className="text-xs text-blue-100">kW</span>
+                  </div>
+                </div>
+                <div className="flex justify-between w-full mt-2 px-8 text-[10px] text-blue-100 uppercase tracking-wider font-semibold">
+                  <span>0 kW</span>
+                  <span>11 kW</span>
+                </div>
+              </div>
+
+              {/* 60 Minute History */}
+              <div className="lg:col-span-2 bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-6 border border-white border-opacity-20">
+                <div className="flex justify-between items-center mb-4">
+                  <p className="text-sm font-medium">Power History (Last 60 Minutes)</p>
+                  <p className="text-xs text-blue-100">Updates every minute</p>
+                </div>
+                <ResponsiveContainer width="100%" height={180}>
+                  <AreaChart data={history60Min}>
+                    <defs>
+                      <linearGradient id="historyGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#fff" stopOpacity={0.8} />
+                        <stop offset="95%" stopColor="#fff" stopOpacity={0.1} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" vertical={false} />
+                    <XAxis 
+                      dataKey="time" 
+                      stroke="rgba(255,255,255,0.5)" 
+                      fontSize={10} 
+                      tick={{ fill: '#fff' }}
+                      interval={9}
+                    />
+                    <YAxis 
+                      stroke="rgba(255,255,255,0.5)" 
+                      fontSize={10} 
+                      tick={{ fill: '#fff' }}
+                      domain={[0, 11]}
+                      unit="kW"
+                    />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Area
+                      type="monotone"
+                      dataKey="power"
+                      name="Power"
+                      unit=" kW"
+                      stroke="#fff"
+                      strokeWidth={2}
+                      fill="url(#historyGradient)"
+                      animationDuration={300}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
             </div>
           </div>
         </div>
@@ -389,33 +463,6 @@ export default function Home() {
           />
         </div>
 
-        {/* Charts Row - Only show if we have trend data (currently hidden as we lack historical API) */}
-        {false && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-            {/* Weekly Energy */}
-            <div className="bg-white rounded-2xl shadow-xl p-6 border border-gray-100">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-bold text-gray-800">Weekly Energy Usage</h3>
-                <Calendar size={20} className="text-gray-400" />
-              </div>
-              <div className="h-[280px] flex items-center justify-center text-gray-400">
-                No historical data available
-              </div>
-            </div>
-
-            {/* Monthly Trend */}
-            <div className="bg-white rounded-2xl shadow-xl p-6 border border-gray-100">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-bold text-gray-800">6-Month Trend</h3>
-                <TrendingUp size={20} className="text-green-500" />
-              </div>
-              <div className="h-[280px] flex items-center justify-center text-gray-400">
-                No historical data available
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Session History - Enhanced */}
         <div className="bg-white rounded-2xl shadow-xl p-6 border border-gray-100">
           <h3 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
@@ -431,6 +478,7 @@ export default function Home() {
                   <th className="text-right py-4 px-4 text-sm font-semibold text-gray-600">Duration</th>
                   <th className="text-right py-4 px-4 text-sm font-semibold text-gray-600">Energy</th>
                   <th className="text-right py-4 px-4 text-sm font-semibold text-gray-600">Avg Power</th>
+                  <th className="text-right py-4 px-4 text-sm font-semibold text-gray-600">Avg Price</th>
                   <th className="text-right py-4 px-4 text-sm font-semibold text-gray-600">Cost</th>
                   <th className="text-right py-4 px-4 text-sm font-semibold text-gray-600">Actions</th>
                 </tr>
@@ -438,7 +486,7 @@ export default function Home() {
               <tbody>
                 {sessionHistory.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="text-center py-8 text-gray-500">
+                    <td colSpan={8} className="text-center py-8 text-gray-500">
                       No charging sessions recorded
                     </td>
                   </tr>
@@ -455,6 +503,7 @@ export default function Home() {
                       <span className="font-semibold text-blue-600">{session.energy.toFixed(1)} kWh</span>
                     </td>
                     <td className="py-4 px-4 text-sm text-right text-gray-600">{session.avgPower.toFixed(2)} kW</td>
+                    <td className="py-4 px-4 text-sm text-right text-gray-500">€{session.avgPrice.toFixed(3)}/kWh</td>
                     <td className="py-4 px-4 text-sm text-right">
                       <span className="font-bold text-green-600">€{session.cost.toFixed(2)}</span>
                     </td>
