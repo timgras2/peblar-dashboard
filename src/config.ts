@@ -22,4 +22,5 @@ export const config = {
     chatId: process.env.TELEGRAM_CHAT_ID || '',
   },
   pollingInterval: 5000, // 5 seconds
+  demoMode: process.env.DEMO_MODE === 'true'
 }; 

@@ -19,6 +19,7 @@ interface ChargingStatus {
   status: number;
   vehicleInfo: string;
   sessionStart: string | null;
+  demoMode?: boolean;
 }
 
 interface ChargingSession {
@@ -260,6 +261,11 @@ export default function Home() {
             <div>
               <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-2">
                 Peblar Charging Dashboard
+                {currentStatus?.demoMode && (
+                  <span className="ml-4 inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                    DEMO MODE
+                  </span>
+                )}
               </h1>
               <p className="text-gray-600 flex items-center gap-2">
                 <Activity size={16} className="text-green-500 animate-pulse" />
@@ -308,11 +314,11 @@ export default function Home() {
             <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-8">
               <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-3 border border-white border-opacity-20">
                 <p className="text-blue-100 text-xs mb-1">Current Power</p>
-                <p className="text-2xl font-bold">{currentStatus?.power || 0} kW</p>
+                <p className="text-2xl font-bold">{(currentStatus?.power || 0).toFixed(2)} kW</p>
               </div>
               <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-3 border border-white border-opacity-20">
                 <p className="text-blue-100 text-xs mb-1">Energy Delivered</p>
-                <p className="text-2xl font-bold">{currentStatus?.energy || 0} kWh</p>
+                <p className="text-2xl font-bold">{(currentStatus?.energy || 0).toFixed(2)} kWh</p>
               </div>
               <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-xl p-3 border border-white border-opacity-20">
                 <p className="text-blue-100 text-xs mb-1">Duration</p>

@@ -5,7 +5,22 @@ export const dynamic = 'force-dynamic';
 
 // Auto-start session recorder on first API call
 export async function GET() {
-  try {
+  if (config.demoMode) {
+    const mockPower = 10.5 + Math.random(); // Fluctuating power around 11kW
+    const mockEnergy = 12.4 + (Date.now() % 100000) / 10000; // Slowly increasing energy
+    
+    return NextResponse.json({
+      power: mockPower,
+      energy: mockEnergy,
+      status: 1,
+      vehicleInfo: "State C",
+      sessionStart: new Date(Date.now() - 3600000).toISOString(),
+      currentPrice: 0.35,
+      demoMode: true
+    });
+  }
+
+  try { 
     // Fetch both status and meter data in parallel
     const baseUrl = `${config.api.baseUrl}:${config.api.port}`;
 

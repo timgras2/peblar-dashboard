@@ -33,6 +33,10 @@ class SessionRecorder {
      * Start the background recorder
      */
     async start() {
+        if (config.demoMode) {
+            console.log('Demo mode active - session recorder disabled');
+            return;
+        }
         if (this.intervalId) {
             console.log('Session recorder already running');
             return;
